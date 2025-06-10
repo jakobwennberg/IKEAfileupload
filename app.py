@@ -3,8 +3,8 @@ from varustatistik_formatter import format_varustatistik_external
 
 st.set_page_config(page_title="Varustatistik-till-Forecast", page_icon="📊")
 
-st.title("📊 Varustatistik-formattering")
-st.write("Ladda upp en svensk restaurang-Excel så får du en färdig **external_forecast_output.txt**.")
+st.title("📊 Varustatistik-formattering för IKEA")
+st.write("Ladda upp er icke formatterade IKEA-Excel så får du en färdig **external_forecast_output.txt**.")
 
 uploaded = st.file_uploader("Välj Excel-fil", type=["xlsx","xls"])
 
