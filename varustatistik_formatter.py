@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Varustatistik Excel Formatter - External Forecast Format
+Varustatistik Excel Formatter - Updated External Forecast Format
 Formats Swedish restaurant statistics Excel files into external forecast data format.
 
 Usage:
@@ -16,6 +16,31 @@ import warnings
 
 # Suppress openpyxl warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
+
+
+def get_swedish_timezone_offset(date_str: str) -> str:
+    """
+    Determine Swedish timezone offset (+01:00 or +02:00) based on date.
+    Sweden uses CEST (+02:00) from last Sunday in March to last Sunday in October.
+    Returns in format +HH:00
+    """
+    year, month, day = map(int, date_str.split('-'))
+    date = datetime(year, month, day)
+    
+    # Find last Sunday in March
+    march_last = datetime(year, 3, 31)
+    while march_last.weekday() != 6:  # 6 = Sunday
+        march_last = march_last.replace(day=march_last.day - 1)
+    
+    # Find last Sunday in October
+    october_last = datetime(year, 10, 31)
+    while october_last.weekday() != 6:
+        october_last = october_last.replace(day=october_last.day - 1)
+    
+    # Check if date is in DST period
+    if march_last <= date < october_last:
+        return '+02:00'
+    return '+01:00'
 
 
 def get_variable_id(category: str) -> str:
@@ -80,22 +105,26 @@ def process_excel_file(filename: str) -> List[Dict]:
                     variable_id = get_variable_id(category)
                     
                     if variable_id:
-                        # Format hour as HH:00:00
-                        hour_formatted = f"{hour_str}:00:00"
+                        # Format time as HH:00:00
+                        time_formatted = f"{hour_str}:00:00"
+                        
+                        # Get timezone offset
+                        timezone = get_swedish_timezone_offset(date_str)
                         
                         # Add to results
                         results.append({
-                            'external_forecast_variable_id': variable_id,
-                            'external_forecast_configuration_id': '',  # Not provided
-                            'external_unit_id': 'produktion',
-                            'external_section_id': 'köket',
                             'date': date_str,
-                            'hour': hour_formatted,
-                            'value': float(antal)
+                            'time': time_formatted,
+                            'timezone': timezone,
+                            'value': float(antal),
+                            'externalForecastVariableId': variable_id,
+                            'externalForecastConfigurationId': '',  # Not provided
+                            'Unit integration key': 'produktion',
+                            'Section integration key': 'köket'
                         })
     
-    # Sort results by date and hour
-    results.sort(key=lambda x: (x['date'], x['hour']))
+    # Sort results by date and time
+    results.sort(key=lambda x: (x['date'], x['time']))
     
     return results
 
@@ -106,11 +135,11 @@ def format_output(results: List[Dict]) -> str:
     """
     # Header with asterisks indicating required fields
     lines = [
-        'External_forecast_variable_ID\tExternal_forecast_configuration_ID\tExternal_unit_ID \tExternal_section_ID\tDate_YYYY-MM-DD\tHour_00:00:00\tValue'
+        'date *\ttime *\ttimezone *\tvalue *\texternalForecastVariableId *\texternalForecastConfigurationId\tUnit integration key\tSection integration key'
     ]
     
     for item in results:
-        line = f"{item['external_forecast_variable_id']}\t{item['external_forecast_configuration_id']}\t{item['external_unit_id']}\t{item['external_section_id']}\t{item['date']}\t{item['hour']}\t{item['value']}"
+        line = f"{item['date']}\t{item['time']}\t{item['timezone']}\t{item['value']}\t{item['externalForecastVariableId']}\t{item['externalForecastConfigurationId']}\t{item['Unit integration key']}\t{item['Section integration key']}"
         lines.append(line)
     
     return '\n'.join(lines)
@@ -149,13 +178,20 @@ def main():
             print(f"- Date range: {results[0]['date']} to {results[-1]['date']}")
             
             # Count by variable ID
-            kallmat_count = sum(1 for r in results if r['external_forecast_variable_id'] == 'kallmat')
-            varmmat_count = sum(1 for r in results if r['external_forecast_variable_id'] == 'varmmat')
+            kallmat_count = sum(1 for r in results if r['externalForecastVariableId'] == 'kallmat')
+            varmmat_count = sum(1 for r in results if r['externalForecastVariableId'] == 'varmmat')
             print(f"- Kallmat records: {kallmat_count}")
             print(f"- Varmmat records: {varmmat_count}")
+            
+            # Show first few records as example
+            print(f"\nExample output (first 3 records):")
+            for i, record in enumerate(results[:3]):
+                print(f"  {record['date']}\t{record['time']}\t{record['timezone']}\t{record['value']}\t{record['externalForecastVariableId']}")
         
     except Exception as e:
         print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 
