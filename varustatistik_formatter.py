@@ -2,6 +2,7 @@
 """
 Varustatistik Excel Formatter - Updated External Forecast Format
 Formats Swedish restaurant statistics Excel files into external forecast data format.
+Aggregates multiple entries with the same timestamp and variable ID.
 
 Usage:
     python varustatistik_formatter.py input_file.xlsx [output_file.txt]
@@ -13,6 +14,7 @@ import sys
 from datetime import datetime
 from typing import List, Tuple, Dict
 import warnings
+from collections import defaultdict
 
 # Suppress openpyxl warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
@@ -65,8 +67,15 @@ def get_variable_id(category: str) -> str:
 def process_excel_file(filename: str) -> List[Dict]:
     """
     Process the Excel file and extract hourly totals.
+    Aggregates values for the same timestamp and variable ID.
     """
-    results = []
+    # Use a dictionary to aggregate values by key
+    aggregated_data = defaultdict(lambda: {
+        'value': 0.0,
+        'externalForecastConfigurationId': '',
+        'Unit integration key': 'produktion',
+        'Section integration key': 'köket'
+    })
     
     # Read Excel file
     xl_file = pd.ExcelFile(filename)
@@ -111,20 +120,28 @@ def process_excel_file(filename: str) -> List[Dict]:
                         # Get timezone offset
                         timezone = get_swedish_timezone_offset(date_str)
                         
-                        # Add to results
-                        results.append({
-                            'date': date_str,
-                            'time': time_formatted,
-                            'timezone': timezone,
-                            'value': float(antal),
-                            'externalForecastVariableId': variable_id,
-                            'externalForecastConfigurationId': '',  # Not provided
-                            'Unit integration key': 'produktion',
-                            'Section integration key': 'köket'
-                        })
+                        # Create unique key for aggregation
+                        key = (date_str, time_formatted, timezone, variable_id)
+                        
+                        # Aggregate the value
+                        aggregated_data[key]['value'] += float(antal)
+    
+    # Convert aggregated data to list of dictionaries
+    results = []
+    for (date_str, time_formatted, timezone, variable_id), data in aggregated_data.items():
+        results.append({
+            'date': date_str,
+            'time': time_formatted,
+            'timezone': timezone,
+            'value': data['value'],
+            'externalForecastVariableId': variable_id,
+            'externalForecastConfigurationId': data['externalForecastConfigurationId'],
+            'Unit integration key': data['Unit integration key'],
+            'Section integration key': data['Section integration key']
+        })
     
     # Sort results by date and time
-    results.sort(key=lambda x: (x['date'], x['time']))
+    results.sort(key=lambda x: (x['date'], x['time'], x['externalForecastVariableId']))
     
     return results
 
@@ -160,7 +177,7 @@ def main():
         print(f"Reading file: {input_file}")
         results = process_excel_file(input_file)
         
-        print(f"Found {len(results)} hourly totals")
+        print(f"Found {len(results)} unique timestamp/variable combinations")
         
         # Format output
         output = format_output(results)
@@ -184,8 +201,8 @@ def main():
             print(f"- Varmmat records: {varmmat_count}")
             
             # Show first few records as example
-            print(f"\nExample output (first 3 records):")
-            for i, record in enumerate(results[:3]):
+            print(f"\nExample output (first 5 records):")
+            for i, record in enumerate(results[:5]):
                 print(f"  {record['date']}\t{record['time']}\t{record['timezone']}\t{record['value']}\t{record['externalForecastVariableId']}")
         
     except Exception as e:
