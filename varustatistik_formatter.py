@@ -14,7 +14,6 @@ import sys
 from datetime import datetime
 from typing import List, Tuple, Dict
 import warnings
-from collections import defaultdict
 
 # Suppress openpyxl warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
@@ -69,13 +68,10 @@ def process_excel_file(filename: str) -> List[Dict]:
     Process the Excel file and extract hourly totals.
     Aggregates values for the same timestamp and variable ID.
     """
-    # Use a dictionary to aggregate values by key
-    aggregated_data = defaultdict(lambda: {
-        'value': 0.0,
-        'externalForecastConfigurationId': '',
-        'Unit integration key': 'produktion',
-        'Section integration key': 'köket'
-    })
+    # Dictionary to aggregate values
+    # Key: (date, time, variable_id)
+    # Value: dict with all data
+    aggregated_data = {}
     
     # Read Excel file
     xl_file = pd.ExcelFile(filename)
@@ -107,7 +103,7 @@ def process_excel_file(filename: str) -> List[Dict]:
                     antal = row[4] if pd.notna(row[4]) else 0
                     
                     # Skip if antal is empty or 0
-                    if antal == '' or pd.isna(antal):
+                    if antal == '' or pd.isna(antal) or antal == 0:
                         continue
                     
                     # Get variable ID based on category
@@ -120,27 +116,29 @@ def process_excel_file(filename: str) -> List[Dict]:
                         # Get timezone offset
                         timezone = get_swedish_timezone_offset(date_str)
                         
-                        # Create unique key for aggregation
-                        key = (date_str, time_formatted, timezone, variable_id)
+                        # Create key for aggregation (date, time, variable_id)
+                        key = (date_str, time_formatted, variable_id)
                         
-                        # Aggregate the value
-                        aggregated_data[key]['value'] += float(antal)
+                        # If key exists, add to existing value, otherwise create new entry
+                        if key in aggregated_data:
+                            aggregated_data[key]['value'] += float(antal)
+                            print(f"  Aggregating: {date_str} {time_formatted} {variable_id} - adding {antal} to existing {aggregated_data[key]['value'] - float(antal)} = {aggregated_data[key]['value']}")
+                        else:
+                            aggregated_data[key] = {
+                                'date': date_str,
+                                'time': time_formatted,
+                                'timezone': timezone,
+                                'value': float(antal),
+                                'externalForecastVariableId': variable_id,
+                                'externalForecastConfigurationId': '',
+                                'Unit integration key': 'produktion',
+                                'Section integration key': 'köket'
+                            }
     
-    # Convert aggregated data to list of dictionaries
-    results = []
-    for (date_str, time_formatted, timezone, variable_id), data in aggregated_data.items():
-        results.append({
-            'date': date_str,
-            'time': time_formatted,
-            'timezone': timezone,
-            'value': data['value'],
-            'externalForecastVariableId': variable_id,
-            'externalForecastConfigurationId': data['externalForecastConfigurationId'],
-            'Unit integration key': data['Unit integration key'],
-            'Section integration key': data['Section integration key']
-        })
+    # Convert aggregated data to list
+    results = list(aggregated_data.values())
     
-    # Sort results by date and time
+    # Sort results by date, time, and variable ID
     results.sort(key=lambda x: (x['date'], x['time'], x['externalForecastVariableId']))
     
     return results
@@ -177,7 +175,7 @@ def main():
         print(f"Reading file: {input_file}")
         results = process_excel_file(input_file)
         
-        print(f"Found {len(results)} unique timestamp/variable combinations")
+        print(f"\nFound {len(results)} unique timestamp/variable combinations after aggregation")
         
         # Format output
         output = format_output(results)
@@ -200,10 +198,16 @@ def main():
             print(f"- Kallmat records: {kallmat_count}")
             print(f"- Varmmat records: {varmmat_count}")
             
-            # Show first few records as example
-            print(f"\nExample output (first 5 records):")
-            for i, record in enumerate(results[:5]):
+            # Show example of aggregated data
+            print(f"\nExample output (first 10 records):")
+            for i, record in enumerate(results[:10]):
                 print(f"  {record['date']}\t{record['time']}\t{record['timezone']}\t{record['value']}\t{record['externalForecastVariableId']}")
+            
+            # Check for any specific date/time with multiple entries
+            print(f"\nChecking 2024-05-02 11:00:00 specifically:")
+            for record in results:
+                if record['date'] == '2024-05-02' and record['time'] == '11:00:00':
+                    print(f"  {record['externalForecastVariableId']}: {record['value']}")
         
     except Exception as e:
         print(f"Error: {e}")
